@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── USUARIOS ───────────────────────────────────────────────────────────────
+
+model User {
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  password      String
+  name          String
+  role          String         @default("viewer") // "admin" | "viewer"
+  isActive      Boolean        @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+  alerts        Alert[]
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  token     String   @unique
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ─── PRODUCTOS ───────────────────────────────────────────────────────────────
+
+model Product {
+  id           Int              @id @default(autoincrement())
+  name         String
+  sku          String           @unique
+  brand        String?
+  category     String?
+  targetPrice  Decimal          @db.Decimal(10, 2)
+  tolerance    Decimal?         @db.Decimal(5, 2)
+  status       String           @default("active") // "active" | "inactive"
+  validFrom    DateTime?
+  validTo      DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  retailerUrls RetailerUrl[]
+  rules        MonitoringRule[]
+  alerts       Alert[]
+}
+
+// ─── RETAILERS / URLS ────────────────────────────────────────────────────────
+
+model RetailerUrl {
+  id                 Int            @id @default(autoincrement())
+  productId          Int
+  product            Product        @relation(fields: [productId], references: [id])
+  retailerName       String
+  url                String
+  internalCode       String?
+  country            String?
+  detectedName       String?
+  status             String         @default("active") // "active" | "inactive" | "error" | "not_found"
+  notes              String?
+  learnedSelector    String?
+  selectorConfidence Float?
+  lastSelectorUpdate DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  captures           PriceCapture[]
+  alerts             Alert[]
+}
+
+// ─── CAPTURAS ────────────────────────────────────────────────────────────────
+
+model PriceCapture {
+  id            Int         @id @default(autoincrement())
+  retailerUrlId Int
+  retailerUrl   RetailerUrl @relation(fields: [retailerUrlId], references: [id])
+  capturedAt    DateTime    @default(now())
+  currentPrice  Decimal?    @db.Decimal(10, 2)
+  struckPrice   Decimal?    @db.Decimal(10, 2)
+  promoText     String?
+  promoType     String? // "discount" | "2x1" | "installments" | "payment_method" | "other"
+  discountPct   Decimal?    @db.Decimal(5, 2)
+  stock         String? // "available" | "out_of_stock" | "unknown"
+  detectedName  String?
+  screenshotPath String?
+  htmlPath      String?
+  checkResult   String      @default("ok") // "ok" | "deviation" | "promo" | "error" | "not_found"
+  rawData       Json?
+}
+
+// ─── REGLAS DE NEGOCIO ───────────────────────────────────────────────────────
+
+model MonitoringRule {
+  id             Int      @id @default(autoincrement())
+  productId      Int
+  product        Product  @relation(fields: [productId], references: [id])
+  ruleType       String // "exact_price" | "min_price" | "max_price" | "range" | "no_promo"
+  minPrice       Decimal? @db.Decimal(10, 2)
+  maxPrice       Decimal? @db.Decimal(10, 2)
+  allowPromos    Boolean  @default(false)
+  maxDiscountPct Decimal? @db.Decimal(5, 2)
+  severity       String   @default("warning") // "info" | "warning" | "critical"
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+}
+
+// ─── ALERTAS ─────────────────────────────────────────────────────────────────
+
+model Alert {
+  id                Int         @id @default(autoincrement())
+  productId         Int
+  product           Product     @relation(fields: [productId], references: [id])
+  retailerUrlId     Int
+  retailerUrl       RetailerUrl @relation(fields: [retailerUrlId], references: [id])
+  type              String // "price_below" | "price_above" | "promo_detected" | "struck_price" | "not_found" | "scraping_error"
+  severity          String // "info" | "warning" | "critical"
+  status            String      @default("open") // "open" | "in_review" | "resolved" | "dismissed"
+  detectedValue     Decimal?    @db.Decimal(10, 2)
+  expectedValue     Decimal?    @db.Decimal(10, 2)
+  description       String?
+  comment           String?
+  resolutionComment String?
+  resolvedAt        DateTime?
+  assignedUserId    Int?
+  assignedUser      User?       @relation(fields: [assignedUserId], references: [id])
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+}
+
+// ─── CONFIG Y LOGS ───────────────────────────────────────────────────────────
+
+model MonitoringConfig {
+  id        Int      @id @default(autoincrement())
+  frequency String   @default("6h") // "1h" | "3h" | "6h" | "12h" | "24h" | cron expression
+  isRunning Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+model JobLog {
+  id            Int      @id @default(autoincrement())
+  jobId         String
+  jobName       String
+  status        String // "started" | "completed" | "failed"
+  retailerUrlId Int?
+  error         String?
+  duration      Int?
+  createdAt     DateTime @default(now())
+}

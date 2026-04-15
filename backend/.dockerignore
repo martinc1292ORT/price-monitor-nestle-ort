@@ -1,0 +1,7 @@
+node_modules
+dist
+generated
+.env
+evidence
+coverage
+*.log

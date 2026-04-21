@@ -121,5 +121,4 @@ export class PromoExtractor {
     const pct = ((struck - current) / struck) * 100;
     return Math.round(pct * 100) / 100;
   }
-
 }

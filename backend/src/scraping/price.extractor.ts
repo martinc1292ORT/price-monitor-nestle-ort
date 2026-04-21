@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Page } from 'playwright';
+import { parsePrice } from './price-parser.util';
 
 export interface PriceExtractionResult {
   currentPrice: number | null;
@@ -13,7 +14,6 @@ const CSS_PRICE_SELECTORS = [
   '.precio',
   '#price',
   '.product-price',
-  '[itemprop="price"]',
 ];
 
 @Injectable()
@@ -21,42 +21,32 @@ export class PriceExtractor {
   private readonly logger = new Logger(PriceExtractor.name);
 
   async extract(page: Page): Promise<PriceExtractionResult> {
-    const rawData: Record<string, unknown> = {};
+    const strategies = [
+      () => this.fromJsonLd(page),
+      () => this.fromMeta(page),
+      () => this.fromMicrodata(page),
+      () => this.fromCss(page),
+    ];
 
-    const jsonLd = await this.fromJsonLd(page).catch((err) => {
-      this.logger.debug(`JSON-LD failed: ${err}`);
-      return null;
-    });
-    if (jsonLd?.currentPrice !== null && jsonLd !== null) {
-      rawData.strategy = 'json-ld';
-      return { ...jsonLd, rawData };
+    for (const strategy of strategies) {
+      const result = await strategy().catch((err) => {
+        this.logger.debug(`Strategy failed: ${err}`);
+        return null;
+      });
+      if (result !== null && result.currentPrice !== null) {
+        return result;
+      }
     }
 
-    const meta = await this.fromMeta(page).catch((err) => {
-      this.logger.debug(`Meta failed: ${err}`);
-      return null;
-    });
-    if (meta?.currentPrice !== null && meta !== null) {
-      rawData.strategy = 'meta';
-      return { ...meta, rawData };
-    }
-
-    const css = await this.fromCss(page).catch((err) => {
-      this.logger.debug(`CSS failed: ${err}`);
-      return null;
-    });
-    if (css?.currentPrice !== null && css !== null) {
-      rawData.strategy = 'css';
-      return { ...css, rawData };
-    }
-
-    rawData.strategy = 'none';
-    return { currentPrice: null, detectedName: null, rawData };
+    this.logger.warn(`No price found on page: ${page.url()}`);
+    return {
+      currentPrice: null,
+      detectedName: null,
+      rawData: { strategy: 'none' },
+    };
   }
 
-  private async fromJsonLd(
-    page: Page,
-  ): Promise<{ currentPrice: number | null; detectedName: string | null }> {
+  private async fromJsonLd(page: Page): Promise<PriceExtractionResult | null> {
     const scripts = await page.$$eval(
       'script[type="application/ld+json"]',
       (els) => els.map((el) => el.textContent ?? ''),
@@ -64,60 +54,162 @@ export class PriceExtractor {
 
     for (const text of scripts) {
       try {
-        const data = JSON.parse(text);
-        const entries: unknown[] = Array.isArray(data) ? data : [data];
-        for (const entry of entries) {
-          if (
-            entry &&
-            typeof entry === 'object' &&
-            (entry as Record<string, unknown>)['@type'] === 'Product'
-          ) {
-            const obj = entry as Record<string, unknown>;
-            const offers = obj.offers as Record<string, unknown> | Record<string, unknown>[];
-            const offer = Array.isArray(offers) ? offers[0] : offers;
-            const price = offer?.price ?? offer?.lowPrice ?? null;
-            const name = typeof obj.name === 'string' ? obj.name : null;
-            if (price !== null) {
-              return { currentPrice: parseFloat(String(price)), detectedName: name };
-            }
-          }
+        const parsed = JSON.parse(text) as unknown;
+        for (const entry of this.flattenJsonLd(parsed)) {
+          const result = this.extractFromJsonLdEntry(entry);
+          if (result) return result;
         }
       } catch {
         // malformed JSON-LD — skip
       }
     }
-    return { currentPrice: null, detectedName: null };
+    return null;
   }
 
-  private async fromMeta(
-    page: Page,
-  ): Promise<{ currentPrice: number | null; detectedName: string | null }> {
-    const price = await page
-      .$eval(
-        'meta[property="og:price:amount"], meta[name="og:price:amount"]',
-        (el) => el.getAttribute('content'),
-      )
-      .catch(() => null);
-
-    const name = await page
-      .$eval(
-        'meta[property="og:title"], meta[name="og:title"]',
-        (el) => el.getAttribute('content'),
-      )
-      .catch(() => null);
-
-    if (price) {
-      const parsed = this.parsePrice(price);
-      return { currentPrice: parsed, detectedName: name };
+  private flattenJsonLd(data: unknown): Record<string, unknown>[] {
+    if (!data || typeof data !== 'object') return [];
+    if (Array.isArray(data)) {
+      return data.flatMap((item) => this.flattenJsonLd(item));
     }
-    return { currentPrice: null, detectedName: null };
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj['@graph'])) {
+      return (obj['@graph'] as unknown[]).flatMap((item) =>
+        this.flattenJsonLd(item),
+      );
+    }
+    return [obj];
   }
 
-  private async fromCss(
+  private extractFromJsonLdEntry(
+    obj: Record<string, unknown>,
+  ): PriceExtractionResult | null {
+    const type = obj['@type'];
+    const name = typeof obj.name === 'string' ? obj.name : null;
+
+    if (type === 'Product') {
+      const offers = obj.offers as
+        | Record<string, unknown>
+        | Record<string, unknown>[]
+        | undefined;
+      const offer = Array.isArray(offers) ? offers[0] : offers;
+      if (!offer) return null;
+      const priceVal = offer.price ?? offer.lowPrice;
+      if (typeof priceVal !== 'string' && typeof priceVal !== 'number')
+        return null;
+      const rawValue = String(priceVal);
+      const source =
+        offer.price != null ? 'jsonld.offers.price' : 'jsonld.offers.lowPrice';
+      const currentPrice = parsePrice(rawValue);
+      if (currentPrice !== null) {
+        return {
+          currentPrice,
+          detectedName: name,
+          rawData: { strategy: 'json-ld', rawValue, source },
+        };
+      }
+    }
+
+    if (type === 'Offer' || type === 'AggregateOffer') {
+      const raw =
+        type === 'AggregateOffer'
+          ? (obj.lowPrice ?? obj.price)
+          : (obj.price ?? obj.lowPrice);
+      if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+      const rawValue = String(raw);
+      const source =
+        type === 'AggregateOffer'
+          ? obj.lowPrice != null
+            ? 'jsonld.direct.lowPrice'
+            : 'jsonld.direct.price'
+          : obj.price != null
+            ? 'jsonld.direct.price'
+            : 'jsonld.direct.lowPrice';
+      const currentPrice = parsePrice(rawValue);
+      if (currentPrice !== null) {
+        return {
+          currentPrice,
+          detectedName: name,
+          rawData: { strategy: 'json-ld', rawValue, source },
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private async fromMeta(page: Page): Promise<PriceExtractionResult | null> {
+    const metaSelectors: Array<[string, string]> = [
+      [
+        'meta[property="og:price:amount"], meta[name="og:price:amount"]',
+        'meta.og:price:amount',
+      ],
+      [
+        'meta[property="product:price:amount"], meta[name="product:price:amount"]',
+        'meta.product:price:amount',
+      ],
+    ];
+
+    for (const [selector, source] of metaSelectors) {
+      const rawValue = await page
+        .$eval(selector, (el) => el.getAttribute('content'))
+        .catch(() => null);
+
+      if (rawValue) {
+        const currentPrice = parsePrice(rawValue);
+        if (currentPrice !== null) {
+          const name = await page
+            .$eval('meta[property="og:title"], meta[name="og:title"]', (el) =>
+              el.getAttribute('content'),
+            )
+            .catch(() => null);
+          return {
+            currentPrice,
+            detectedName: name,
+            rawData: { strategy: 'meta', rawValue, source },
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  private async fromMicrodata(
     page: Page,
-  ): Promise<{ currentPrice: number | null; detectedName: string | null }> {
+  ): Promise<PriceExtractionResult | null> {
+    const nodes = await page
+      .$$eval('[itemprop="price"]', (els) =>
+        els.map((el) => ({
+          content: el.getAttribute('content'),
+          text: el.textContent ?? null,
+        })),
+      )
+      .catch(
+        () => [] as Array<{ content: string | null; text: string | null }>,
+      );
+
+    const candidateCount = nodes.length;
+
+    for (const node of nodes) {
+      const rawValue = node.content ?? node.text ?? '';
+      const source =
+        node.content != null
+          ? 'microdata.[itemprop=price].content'
+          : 'microdata.[itemprop=price].textContent';
+      const currentPrice = parsePrice(rawValue);
+      if (currentPrice !== null) {
+        return {
+          currentPrice,
+          detectedName: null,
+          rawData: { strategy: 'microdata', rawValue, source, candidateCount },
+        };
+      }
+    }
+    return null;
+  }
+
+  private async fromCss(page: Page): Promise<PriceExtractionResult | null> {
     for (const selector of CSS_PRICE_SELECTORS) {
-      const text = await page
+      const rawValue = await page
         .$eval(
           selector,
           (el) =>
@@ -127,24 +219,17 @@ export class PriceExtractor {
         )
         .catch(() => null);
 
-      if (text) {
-        const price = this.parsePrice(text);
-        if (price !== null) {
-          return { currentPrice: price, detectedName: null };
+      if (rawValue) {
+        const currentPrice = parsePrice(rawValue);
+        if (currentPrice !== null) {
+          return {
+            currentPrice,
+            detectedName: null,
+            rawData: { strategy: 'css', rawValue, source: `css.${selector}` },
+          };
         }
       }
     }
-    return { currentPrice: null, detectedName: null };
-  }
-
-  private parsePrice(text: string): number | null {
-    // Remove currency symbols and spaces, normalize decimal separator
-    const cleaned = text.trim().replace(/[^\d.,]/g, '');
-    // Handle "1.299,99" (European) → "1299.99"
-    const normalized = cleaned.includes(',')
-      ? cleaned.replace(/\./g, '').replace(',', '.')
-      : cleaned;
-    const value = parseFloat(normalized);
-    return isNaN(value) || value <= 0 ? null : value;
+    return null;
   }
 }

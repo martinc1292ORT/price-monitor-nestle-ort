@@ -21,10 +21,12 @@ export class AuthService {
 
   async login(email: string, password: string) {
     const user = await this.users.findByEmail(email);
-    if (!user || !user.isActive) throw new UnauthorizedException('Credenciales inválidas');
+    if (!user || !user.isActive)
+      throw new UnauthorizedException('Credenciales inválidas');
 
     const passwordMatch = await bcrypt.compare(password, user.password);
-    if (!passwordMatch) throw new UnauthorizedException('Credenciales inválidas');
+    if (!passwordMatch)
+      throw new UnauthorizedException('Credenciales inválidas');
 
     await this.users.updateLastLogin(user.id);
 
@@ -34,7 +36,12 @@ export class AuthService {
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
     };
   }
 
@@ -44,7 +51,8 @@ export class AuthService {
     });
 
     if (!stored || stored.expiresAt < new Date()) {
-      if (stored) await this.prisma.refreshToken.delete({ where: { id: stored.id } });
+      if (stored)
+        await this.prisma.refreshToken.delete({ where: { id: stored.id } });
       throw new ForbiddenException('Refresh token inválido o expirado');
     }
 
@@ -68,15 +76,31 @@ export class AuthService {
   private async generateTokens(userId: number, email: string, role: string) {
     const payload: JwtPayload = { sub: userId, email, role };
 
-    const accessExpires = (this.config.get('JWT_ACCESS_EXPIRES') ?? '15m') as `${number}${'s'|'m'|'h'|'d'}`;
-    const refreshExpiresSigned = (this.config.get('JWT_REFRESH_EXPIRES') ?? '7d') as `${number}${'s'|'m'|'h'|'d'}`;
+    const accessExpires = this.toExpiresInSeconds(
+      this.config.get<string>('JWT_ACCESS_EXPIRES') ?? '15m',
+    );
+    const refreshExpires = this.toExpiresInSeconds(
+      this.config.get<string>('JWT_REFRESH_EXPIRES') ?? '7d',
+    );
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwt.signAsync(payload, { expiresIn: accessExpires }),
-      this.jwt.signAsync(payload, { expiresIn: refreshExpiresSigned }),
+      this.jwt.signAsync(payload, { expiresIn: refreshExpires }),
     ]);
 
     return { accessToken, refreshToken };
+  }
+
+  private toExpiresInSeconds(value: string): number {
+    const match = /^(\d+)([smhd])$/.exec(value);
+    if (!match) return 900;
+    const multipliers: Record<string, number> = {
+      s: 1,
+      m: 60,
+      h: 3600,
+      d: 86400,
+    };
+    return parseInt(match[1], 10) * (multipliers[match[2]] ?? 60);
   }
 
   private async saveRefreshToken(userId: number, token: string) {
@@ -84,6 +108,8 @@ export class AuthService {
     const days = parseInt(refreshExpires.replace('d', ''), 10);
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
-    await this.prisma.refreshToken.create({ data: { userId, token, expiresAt } });
+    await this.prisma.refreshToken.create({
+      data: { userId, token, expiresAt },
+    });
   }
 }

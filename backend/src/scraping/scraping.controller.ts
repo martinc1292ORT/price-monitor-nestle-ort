@@ -8,7 +8,9 @@ export class ScrapingController {
 
   @Post(':retailerUrlId')
   @Roles('admin')
-  scrape(@Param('retailerUrlId', ParseIntPipe) retailerUrlId: number): Promise<ScrapingResult> {
+  scrape(
+    @Param('retailerUrlId', ParseIntPipe) retailerUrlId: number,
+  ): Promise<ScrapingResult> {
     return this.scrapingService.scrape(retailerUrlId);
   }
 }

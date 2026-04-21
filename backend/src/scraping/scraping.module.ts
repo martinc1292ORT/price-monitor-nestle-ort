@@ -8,7 +8,13 @@ import { ScrapingService } from './scraping.service';
 
 @Module({
   controllers: [ScrapingController],
-  providers: [PrismaService, PlaywrightService, PriceExtractor, PromoExtractor, ScrapingService],
+  providers: [
+    PrismaService,
+    PlaywrightService,
+    PriceExtractor,
+    PromoExtractor,
+    ScrapingService,
+  ],
   exports: [ScrapingService],
 })
 export class ScrapingModule {}

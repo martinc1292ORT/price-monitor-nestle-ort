@@ -1,11 +1,13 @@
 import { PriceExtractor } from './price.extractor';
 import { Page } from 'playwright';
 
-function makePage(config: {
-  jsonLdTexts?: string[];
-  microdataNodes?: Array<{ content: string | null; text: string | null }>;
-  $evalResults?: Record<string, string | null>;
-} = {}): Page {
+function makePage(
+  config: {
+    jsonLdTexts?: string[];
+    microdataNodes?: Array<{ content: string | null; text: string | null }>;
+    $evalResults?: Record<string, string | null>;
+  } = {},
+): Page {
   return {
     url: jest.fn().mockReturnValue('https://example.com/product'),
     $$eval: jest.fn().mockImplementation((selector: string) => {
@@ -19,7 +21,8 @@ function makePage(config: {
     }),
     $eval: jest.fn().mockImplementation((selector: string) => {
       const result = config.$evalResults?.[selector];
-      if (result !== undefined && result !== null) return Promise.resolve(result);
+      if (result !== undefined && result !== null)
+        return Promise.resolve(result);
       return Promise.reject(new Error('element not found'));
     }),
   } as unknown as Page;
@@ -46,7 +49,10 @@ describe('PriceExtractor', () => {
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(1299.99);
       expect(result.detectedName).toBe('Leche Nestlé');
-      expect(result.rawData).toMatchObject({ strategy: 'json-ld', source: 'jsonld.offers.price' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'json-ld',
+        source: 'jsonld.offers.price',
+      });
     });
 
     it('extrae precio de @type:Product con offers.lowPrice cuando price está ausente', async () => {
@@ -60,7 +66,10 @@ describe('PriceExtractor', () => {
       });
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(850);
-      expect(result.rawData).toMatchObject({ strategy: 'json-ld', source: 'jsonld.offers.lowPrice' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'json-ld',
+        source: 'jsonld.offers.lowPrice',
+      });
     });
 
     it('extrae precio de @type:Offer directo', async () => {
@@ -69,16 +78,28 @@ describe('PriceExtractor', () => {
       });
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(599);
-      expect(result.rawData).toMatchObject({ strategy: 'json-ld', source: 'jsonld.direct.price' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'json-ld',
+        source: 'jsonld.direct.price',
+      });
     });
 
     it('extrae lowPrice de @type:AggregateOffer', async () => {
       const page = makePage({
-        jsonLdTexts: [JSON.stringify({ '@type': 'AggregateOffer', lowPrice: '499', highPrice: '799' })],
+        jsonLdTexts: [
+          JSON.stringify({
+            '@type': 'AggregateOffer',
+            lowPrice: '499',
+            highPrice: '799',
+          }),
+        ],
       });
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(499);
-      expect(result.rawData).toMatchObject({ strategy: 'json-ld', source: 'jsonld.direct.lowPrice' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'json-ld',
+        source: 'jsonld.direct.lowPrice',
+      });
     });
 
     it('extrae precio de un @graph que contiene un Product', async () => {
@@ -88,7 +109,11 @@ describe('PriceExtractor', () => {
             '@context': 'https://schema.org',
             '@graph': [
               { '@type': 'WebPage' },
-              { '@type': 'Product', name: 'Producto Graph', offers: { price: '1500' } },
+              {
+                '@type': 'Product',
+                name: 'Producto Graph',
+                offers: { price: '1500' },
+              },
             ],
           }),
         ],
@@ -127,25 +152,33 @@ describe('PriceExtractor', () => {
     it('extrae precio de og:price:amount', async () => {
       const page = makePage({
         $evalResults: {
-          'meta[property="og:price:amount"], meta[name="og:price:amount"]': '1299',
+          'meta[property="og:price:amount"], meta[name="og:price:amount"]':
+            '1299',
           'meta[property="og:title"], meta[name="og:title"]': 'Leche Nestlé',
         },
       });
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(1299);
       expect(result.detectedName).toBe('Leche Nestlé');
-      expect(result.rawData).toMatchObject({ strategy: 'meta', source: 'meta.og:price:amount' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'meta',
+        source: 'meta.og:price:amount',
+      });
     });
 
     it('cae en product:price:amount cuando og:price:amount no existe', async () => {
       const page = makePage({
         $evalResults: {
-          'meta[property="product:price:amount"], meta[name="product:price:amount"]': '890',
+          'meta[property="product:price:amount"], meta[name="product:price:amount"]':
+            '890',
         },
       });
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(890);
-      expect(result.rawData).toMatchObject({ strategy: 'meta', source: 'meta.product:price:amount' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'meta',
+        source: 'meta.product:price:amount',
+      });
     });
   });
 
@@ -202,7 +235,10 @@ describe('PriceExtractor', () => {
       });
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(1299.99);
-      expect(result.rawData).toMatchObject({ strategy: 'css', source: 'css..price' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'css',
+        source: 'css..price',
+      });
     });
 
     it('extrae precio del atributo data-price', async () => {
@@ -211,7 +247,10 @@ describe('PriceExtractor', () => {
       });
       const result = await extractor.extract(page);
       expect(result.currentPrice).toBe(750);
-      expect(result.rawData).toMatchObject({ strategy: 'css', source: 'css.[data-price]' });
+      expect(result.rawData).toMatchObject({
+        strategy: 'css',
+        source: 'css.[data-price]',
+      });
     });
   });
 
@@ -219,7 +258,8 @@ describe('PriceExtractor', () => {
     it('pasa a la siguiente estrategia si la anterior no encontró precio', async () => {
       const page = makePage({
         $evalResults: {
-          'meta[property="og:price:amount"], meta[name="og:price:amount"]': '999',
+          'meta[property="og:price:amount"], meta[name="og:price:amount"]':
+            '999',
         },
       });
       const result = await extractor.extract(page);
@@ -239,7 +279,12 @@ describe('PriceExtractor', () => {
   describe('rawData', () => {
     it('incluye rawValue con el string original encontrado', async () => {
       const page = makePage({
-        jsonLdTexts: [JSON.stringify({ '@type': 'Product', offers: { price: '$1.299,99' } })],
+        jsonLdTexts: [
+          JSON.stringify({
+            '@type': 'Product',
+            offers: { price: '$1.299,99' },
+          }),
+        ],
       });
       const result = await extractor.extract(page);
       expect(result.rawData.rawValue).toBe('$1.299,99');

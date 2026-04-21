@@ -40,7 +40,8 @@ export class ScrapingService {
     private readonly priceExtractor: PriceExtractor,
     private readonly promoExtractor: PromoExtractor,
   ) {
-    this.evidenceBase = process.env.EVIDENCE_BASE_PATH ?? path.join(process.cwd(), 'evidence');
+    this.evidenceBase =
+      process.env.EVIDENCE_BASE_PATH ?? path.join(process.cwd(), 'evidence');
   }
 
   async scrape(retailerUrlId: number): Promise<ScrapingResult> {
@@ -102,7 +103,10 @@ export class ScrapingService {
       const priceResult = await this.priceExtractor.extract(page);
 
       // 3. Detect promo
-      const promoResult = await this.promoExtractor.extract(page, priceResult.currentPrice);
+      const promoResult = await this.promoExtractor.extract(
+        page,
+        priceResult.currentPrice,
+      );
 
       // 4. Save evidence
       const datePath = new Date().toISOString().split('T')[0];
@@ -169,7 +173,9 @@ export class ScrapingService {
       // networkidle may timeout on heavy sites — check if page loaded partially
       const currentUrl = page.url();
       if (currentUrl && currentUrl !== 'about:blank') {
-        this.logger.warn(`networkidle timeout for ${url}, proceeding with partial load`);
+        this.logger.warn(
+          `networkidle timeout for ${url}, proceeding with partial load`,
+        );
         return true;
       }
       this.logger.error(`Navigation failed entirely for ${url}`);
@@ -214,7 +220,10 @@ export class ScrapingService {
     }
   }
 
-  private async persistCapture(retailerUrlId: number, data: CaptureData): Promise<void> {
+  private async persistCapture(
+    retailerUrlId: number,
+    data: CaptureData,
+  ): Promise<void> {
     await this.prisma.priceCapture.create({
       data: {
         retailerUrlId,
@@ -228,19 +237,27 @@ export class ScrapingService {
         screenshotPath: data.screenshotPath ?? null,
         htmlPath: data.htmlPath ?? null,
         checkResult: data.checkResult,
-        rawData: data.rawData ? (data.rawData as Prisma.InputJsonValue) : undefined,
+        rawData: data.rawData
+          ? (data.rawData as Prisma.InputJsonValue)
+          : undefined,
       },
     });
   }
 
-  private async updateStatus(retailerUrlId: number, status: string): Promise<void> {
+  private async updateStatus(
+    retailerUrlId: number,
+    status: string,
+  ): Promise<void> {
     await this.prisma.retailerUrl.update({
       where: { id: retailerUrlId },
       data: { status },
     });
   }
 
-  private determineCheckResult(currentPrice: number | null, hasPromo: boolean): string {
+  private determineCheckResult(
+    currentPrice: number | null,
+    hasPromo: boolean,
+  ): string {
     if (currentPrice === null) return 'not_found';
     if (hasPromo) return 'promo';
     return 'ok';

@@ -20,7 +20,9 @@ export class PlaywrightService implements OnModuleDestroy {
 
   async createPage(): Promise<Page> {
     const browser = await this.getBrowser();
-    const context: BrowserContext = await browser.newContext({ userAgent: USER_AGENT });
+    const context: BrowserContext = await browser.newContext({
+      userAgent: USER_AGENT,
+    });
     const page = await context.newPage();
     page.setDefaultNavigationTimeout(NAV_TIMEOUT_MS);
     page.setDefaultTimeout(NAV_TIMEOUT_MS);

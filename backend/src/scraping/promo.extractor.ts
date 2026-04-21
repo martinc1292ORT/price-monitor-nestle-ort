@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { parsePrice } from './price-parser.util';
 import { Page } from 'playwright';
 
 export interface PromoExtractionResult {
@@ -41,7 +42,10 @@ const PROMO_BADGE_SELECTORS = [
 
 @Injectable()
 export class PromoExtractor {
-  async extract(page: Page, currentPrice: number | null): Promise<PromoExtractionResult> {
+  async extract(
+    page: Page,
+    currentPrice: number | null,
+  ): Promise<PromoExtractionResult> {
     const [struckPrice, promoText, hasBadge] = await Promise.all([
       this.extractStruckPrice(page),
       this.extractPromoText(page),
@@ -57,9 +61,11 @@ export class PromoExtractor {
 
   private async extractStruckPrice(page: Page): Promise<number | null> {
     for (const selector of STRUCK_SELECTORS) {
-      const text = await page.$eval(selector, (el) => el.textContent).catch(() => null);
+      const text = await page
+        .$eval(selector, (el) => el.textContent)
+        .catch(() => null);
       if (text) {
-        const price = this.parsePrice(text);
+        const price = parsePrice(text);
         if (price !== null) return price;
       }
     }
@@ -100,23 +106,20 @@ export class PromoExtractor {
     const t = promoText.toLowerCase();
     if (t.includes('2x1')) return '2x1';
     if (t.includes('cuota')) return 'installments';
-    if (t.includes('%') || t.includes('descuento') || t.includes('off')) return 'discount';
+    if (t.includes('%') || t.includes('descuento') || t.includes('off'))
+      return 'discount';
     if (t.includes('cyber')) return 'discount';
     return 'other';
   }
 
-  private calcDiscountPct(current: number | null, struck: number | null): number | null {
-    if (current === null || struck === null || struck <= 0 || struck <= current) return null;
+  private calcDiscountPct(
+    current: number | null,
+    struck: number | null,
+  ): number | null {
+    if (current === null || struck === null || struck <= 0 || struck <= current)
+      return null;
     const pct = ((struck - current) / struck) * 100;
     return Math.round(pct * 100) / 100;
   }
 
-  private parsePrice(text: string): number | null {
-    const cleaned = text.trim().replace(/[^\d.,]/g, '');
-    const normalized = cleaned.includes(',')
-      ? cleaned.replace(/\./g, '').replace(',', '.')
-      : cleaned;
-    const value = parseFloat(normalized);
-    return isNaN(value) || value <= 0 ? null : value;
-  }
 }

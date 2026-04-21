@@ -6,6 +6,8 @@ import { AppController } from './app.controller';
 import { PrismaService } from './database/prisma.service';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { ProductsModule } from './products/products.module';
+import { RetailerUrlsModule } from './retailer-urls/retailer-urls.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -15,6 +17,8 @@ import { RolesGuard } from './common/guards/roles.guard';
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     AuthModule,
     UsersModule,
+    ProductsModule,
+    RetailerUrlsModule,
   ],
   controllers: [AppController],
   providers: [

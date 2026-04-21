@@ -161,7 +161,7 @@ export class ScrapingService {
         error: String(err),
       };
     } finally {
-      await this.playwright.closePage(page);
+      if (page) await this.playwright.closePage(page);
     }
   }
 

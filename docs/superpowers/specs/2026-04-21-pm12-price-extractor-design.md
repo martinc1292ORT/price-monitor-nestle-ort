@@ -43,13 +43,24 @@ export function parsePrice(text: string): number | null
 ```
 
 **Reglas de normalización:**
-1. Trim del string de entrada
+1. Trim del string de entrada; retornar `null` si vacío
 2. Eliminar todo excepto dígitos, puntos y comas: `/[^\d.,]/g`
-3. Si contiene coma: formato europeo (`1.299,99` → `1299.99`)
-   - Eliminar puntos → reemplazar coma por punto
-4. Si no contiene coma: formato americano/neutro (`1299.99`)
-5. `parseFloat` del resultado
-6. Retornar `null` si `isNaN`, `<= 0`, o string vacío de entrada
+3. Determinar el separador decimal por **posición del último separador**:
+   - `lastIndexOf(',') > lastIndexOf('.')` → decimal es coma (EU): eliminar puntos, reemplazar coma por punto
+     - `"1.299,99"` → `"1299.99"`
+   - `lastIndexOf('.') > lastIndexOf(',')` → decimal es punto (US): eliminar comas
+     - `"1,299.99"` → `"1299.99"`
+   - Solo coma, sin punto → decimal es coma: reemplazar coma por punto
+     - `"1299,99"` → `"1299.99"`
+   - Solo punto, sin coma → decimal es punto: sin transformación
+     - `"1299.99"` → `"1299.99"`
+   - Sin separadores → dígitos puros: sin transformación
+4. `parseFloat` del resultado
+5. Retornar `null` si `isNaN` o `<= 0`
+
+> **Edge case documentado:** `"1.299"` (sin coma) se resuelve como `1.299` (decimal),
+> no como `1299` (miles). En la práctica los precios argentinos con miles siempre
+> usan coma decimal (`"1.299,00"`), por lo que este caso es raro en los sites monitoreados.
 
 ---
 
@@ -185,14 +196,18 @@ Sin cambios funcionales.
 
 | Input | Expected |
 |---|---|
-| `'$1.299,99'` | `1299.99` |
-| `'1299.99'` | `1299.99` |
-| `'  $ 850 '` | `850` |
-| `''` | `null` |
-| `'0'` | `null` |
-| `'-50'` | `null` |
-| `'sin precio'` | `null` |
-| `'1,299.99'` (americano) | `1299.99` |
+| Input | Expected | Motivo |
+|---|---|---|
+| `'$1.299,99'` | `1299.99` | EU: último separador es coma |
+| `'1,299.99'` | `1299.99` | US: último separador es punto |
+| `'1299,99'` | `1299.99` | solo coma → decimal |
+| `'1299.99'` | `1299.99` | solo punto → decimal |
+| `'1.299'` | `1.299` | edge case documentado |
+| `'  $ 850 '` | `850` | trim + símbolo |
+| `''` | `null` | vacío |
+| `'0'` | `null` | valor <= 0 |
+| `'-50'` | `null` | valor <= 0 |
+| `'sin precio'` | `null` | sin dígitos |
 
 ### fromJsonLd
 

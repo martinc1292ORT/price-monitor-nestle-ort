@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CreateRetailerUrlDto } from './dto/create-retailer-url.dto';
 import { UpdateRetailerUrlDto } from './dto/update-retailer-url.dto';
@@ -47,7 +44,8 @@ export class RetailerUrlsService {
       where: { id },
       include: { product: { select: { id: true, name: true, sku: true } } },
     });
-    if (!retailerUrl) throw new NotFoundException(`RetailerUrl #${id} not found`);
+    if (!retailerUrl)
+      throw new NotFoundException(`RetailerUrl #${id} not found`);
     return retailerUrl;
   }
 

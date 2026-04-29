@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { AlertsModule } from '../alerts/alerts.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { PrismaService } from '../database/prisma.service';
 import { PlaywrightService } from './playwright.service';
 import { PriceExtractor } from './price.extractor';
@@ -10,6 +12,7 @@ import { ScrapingProcessor } from './queue/scraping.processor';
 import { MonitoringScheduler } from './queue/monitoring.scheduler';
 
 @Module({
+  imports: [AlertsModule, NotificationsModule],
   controllers: [ScrapingController],
   providers: [
     PrismaService,

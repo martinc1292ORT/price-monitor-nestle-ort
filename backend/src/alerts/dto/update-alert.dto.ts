@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
-import { ALERT_STATUSES, AlertStatus } from '../alerts.constants';
+import { ALERT_STATUSES } from '../alerts.constants';
+import type { AlertStatus } from '../alerts.constants';
 
 export class UpdateAlertDto {
   @IsOptional()

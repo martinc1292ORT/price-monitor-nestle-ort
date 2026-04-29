@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Prisma } from '../../generated/prisma/client.js';
+import { Prisma, PriceCapture } from '../../generated/prisma/client.js';
 import { Page } from 'playwright';
 import { PrismaService } from '../database/prisma.service';
 import { PlaywrightService } from './playwright.service';
@@ -13,6 +13,7 @@ export interface ScrapingResult {
   retailerUrlId: number;
   checkResult: string;
   currentPrice: number | null;
+  capture?: PriceCapture;
   error?: string;
 }
 
@@ -126,7 +127,7 @@ export class ScrapingService {
       );
 
       // 6. Persist PriceCapture
-      await this.persistCapture(retailerUrlId, {
+      const savedCapture = await this.persistCapture(retailerUrlId, {
         currentPrice: priceResult.currentPrice,
         struckPrice: promoResult.struckPrice,
         promoText: promoResult.promoText,
@@ -155,6 +156,7 @@ export class ScrapingService {
         retailerUrlId,
         checkResult,
         currentPrice: priceResult.currentPrice,
+        capture: savedCapture,
       };
     } catch (err) {
       this.logger.error(`Unexpected error scraping #${retailerUrlId}: ${err}`);
@@ -233,8 +235,8 @@ export class ScrapingService {
   private async persistCapture(
     retailerUrlId: number,
     data: CaptureData,
-  ): Promise<void> {
-    await this.prisma.priceCapture.create({
+  ): Promise<PriceCapture> {
+    return this.prisma.priceCapture.create({
       data: {
         retailerUrlId,
         capturedAt: new Date(),

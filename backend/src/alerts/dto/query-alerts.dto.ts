@@ -1,12 +1,8 @@
 import { Type } from 'class-transformer';
 import { IsDateString, IsIn, IsInt, IsOptional, Min } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto';
-import {
-  ALERT_SEVERITIES,
-  ALERT_STATUSES,
-  AlertSeverity,
-  AlertStatus,
-} from '../alerts.constants';
+import { ALERT_SEVERITIES, ALERT_STATUSES } from '../alerts.constants';
+import type { AlertSeverity, AlertStatus } from '../alerts.constants';
 
 export class QueryAlertsDto extends PaginationDto {
   @IsOptional()

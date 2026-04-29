@@ -5,7 +5,10 @@ import {
   OnApplicationBootstrap,
 } from '@nestjs/common';
 import { Job, Worker } from 'bullmq';
+import type { PriceCapture } from '../../../generated/prisma/client.js';
 import { PrismaService } from '../../database/prisma.service';
+import { AlertsService } from '../../alerts/alerts.service';
+import { NotificationService } from '../../notifications/notification.service';
 import { ScrapingService } from '../scraping.service';
 import {
   ScrapingQueue,
@@ -28,6 +31,8 @@ export class ScrapingProcessor
     private readonly prisma: PrismaService,
     private readonly scrapingService: ScrapingService,
     private readonly scrapingQueue: ScrapingQueue,
+    private readonly alertsService: AlertsService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -106,6 +111,9 @@ export class ScrapingProcessor
         // throw so BullMQ records the attempt as failed and can retry
         throw new Error(result.error ?? 'scrape failed');
       }
+      if (result.capture) {
+        await this.runAlertPipeline(result.capture);
+      }
       return result;
     } catch (err) {
       await this.prisma.jobLog
@@ -121,6 +129,43 @@ export class ScrapingProcessor
         })
         .catch(() => {});
       throw err;
+    }
+  }
+
+  private async runAlertPipeline(capture: PriceCapture): Promise<void> {
+    try {
+      const retailerUrl = await this.prisma.retailerUrl.findUnique({
+        where: { id: capture.retailerUrlId },
+        include: { product: true },
+      });
+
+      if (!retailerUrl?.product) return;
+
+      const alerts = await this.alertsService.createFromCapture(
+        capture,
+        retailerUrl,
+        retailerUrl.product,
+      );
+
+      for (const alert of alerts) {
+        if (alert.severity === 'warning' || alert.severity === 'critical') {
+          await this.notificationService
+            .sendAlert({
+              alert,
+              product: retailerUrl.product,
+              retailerUrl,
+            })
+            .catch((err: unknown) => {
+              this.logger.error(
+                `Notification failed for alert #${alert.id}: ${String(err)}`,
+              );
+            });
+        }
+      }
+    } catch (err) {
+      this.logger.error(
+        `Alert pipeline failed for capture #${capture.id}: ${String(err)}`,
+      );
     }
   }
 

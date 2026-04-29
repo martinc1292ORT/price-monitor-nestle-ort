@@ -10,6 +10,7 @@ import { ProductsModule } from './products/products.module';
 import { RetailerUrlsModule } from './retailer-urls/retailer-urls.module';
 import { RulesEngineModule } from './rules-engine/rules-engine.module';
 import { ScrapingModule } from './scraping/scraping.module';
+import { AlertsModule } from './alerts/alerts.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
@@ -23,6 +24,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     RetailerUrlsModule,
     RulesEngineModule,
     ScrapingModule,
+    AlertsModule,
   ],
   controllers: [AppController],
   providers: [

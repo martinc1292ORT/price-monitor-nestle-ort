@@ -4,132 +4,109 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Internal tool for automated price monitoring of Nestlé products across Argentine e-commerce platforms. Detects unauthorized price deviations, undisclosed promotions, and discrepancies against reference prices, generating alerts for the commercial team.
+Full-stack monorepo for automated Nestlé product price monitoring across Argentine e-commerce platforms. Detects unauthorized price deviations, captures evidence (screenshots + HTML), and generates alerts for the commercial team.
 
-## Development Commands
+**Stack:** NestJS 11 + PostgreSQL 15 + Redis 7 + BullMQ | React 19 + Vite + Tailwind CSS 4 | Playwright for scraping | Prisma 7 ORM | Docker Compose
 
-All commands run from the respective subdirectory (`backend/` or `frontend/`).
+## Commands
 
-### Backend (`cd backend`)
-
+### Running the full stack
 ```bash
-npm run start:dev          # Watch mode with hot reload
-npm run build              # Compile TypeScript to dist/
-npm run lint               # ESLint with auto-fix
-npm run format             # Prettier formatting
-
-npm run test               # Unit tests
-npm run test:watch         # Watch mode
-npm run test:cov           # Coverage report
-npm run test:e2e           # E2E tests
-npm run test -- --testPathPattern=scraping  # Single test file/pattern
+docker compose up --build -d        # Start all services (postgres, redis, backend, frontend)
+docker compose logs -f backend      # Stream backend logs
+docker compose down                 # Stop all services
 ```
 
-### Frontend (`cd frontend`)
-
+### Backend (NestJS) — run from `backend/`
 ```bash
-npm run dev                # Vite dev server on port 5173
-npm run build              # Production build
-npm run lint               # ESLint
+npm run start:dev                   # Dev server with watch (port 3000)
+npm run build                       # Compile TypeScript to dist/
+npm run lint                        # ESLint with auto-fix
+npm test                            # Unit tests (Jest)
+npm run test:watch                  # Jest watch mode
+npm run test:cov                    # Coverage report
+npm run test:e2e                    # End-to-end tests
 ```
 
-### Docker (root directory)
-
+### Frontend (React) — run from `frontend/`
 ```bash
-docker compose up --build -d          # Start all services
-docker compose down                   # Stop all services
+npm run dev                         # Vite dev server (port 5173)
+npm run build                       # Production build
+npm run lint                        # ESLint checks
 ```
 
-### Database (from `backend/`)
-
+### Database
 ```bash
-npx prisma migrate dev                # Apply migrations
-npx prisma db seed                    # Seed default admin user
-npx prisma studio                     # GUI for database inspection
-npx prisma generate                   # Regenerate Prisma client after schema changes
+# Run from backend/
+npx prisma migrate dev --name <migration_name>   # Create and apply migration
+npx prisma db seed                               # Seed default admin user + sample data
+npx prisma studio                                # Visual DB browser
+npx prisma generate                              # Regenerate client after schema changes
+```
+
+### Single test file
+```bash
+# From backend/
+npx jest src/alerts/alerts.service.spec.ts --no-coverage
+npx jest --testPathPattern="rules-engine" --no-coverage
 ```
 
 ## Architecture
 
-Monorepo with two independent apps sharing a Docker Compose network.
+### Backend module structure (`backend/src/`)
 
-### Backend — NestJS 11 + TypeScript + PostgreSQL
+All routes are prefixed `/api`. Three global guards wrap every request in order: `ThrottlerGuard` (100 req/60s) → `JwtAuthGuard` → `RolesGuard`. Use `@Public()` to bypass JWT, `@Roles('admin')` to restrict access.
 
-Feature modules registered in [backend/src/app.module.ts](backend/src/app.module.ts):
+| Module | Responsibility |
+|---|---|
+| `auth/` | Login, JWT access + refresh token flow, bcrypt hashing |
+| `users/` | User lookup service (no controller — internal only) |
+| `products/` | Product catalog CRUD, monitoring rule creation |
+| `retailer-urls/` | Per-retailer URL tracking with selector persistence |
+| `scraping/` | Playwright browser automation + multi-strategy price/promo extraction |
+| `rules-engine/` | Evaluates price deviation rules against captured prices |
+| `alerts/` | Alert generation, querying, and status updates |
+| `database/` | `PrismaService` — extends PrismaClient, exported from AppModule |
+| `common/` | Shared decorators (`@Public`, `@Roles`), guards, DTOs |
 
-| Module | Path | Purpose |
-|--------|------|---------|
-| Auth | `src/auth/` | JWT login/refresh/logout, Passport strategy, bcrypt |
-| Users | `src/users/` | CRUD, password updates, soft-delete via `isActive` |
-| Products | `src/products/` | CRUD with target price + tolerance |
-| RetailerUrls | `src/retailer-urls/` | Retailer URLs, learned selectors with confidence scores |
-| Scraping | `src/scraping/` | Playwright browser automation + price/promo extraction |
-| Database | `src/database/` | Prisma singleton service (global) |
+`PrismaService` is provided and exported by `AppModule`, so any feature module can inject it directly without re-importing `DatabaseModule`.
 
-**Global guards** (applied via `APP_GUARD` in `app.module.ts` — no per-controller decoration needed):
-- `JwtAuthGuard` — validates JWT on all routes; routes opt-out with `@Public()`
-- `RolesGuard` — checks `user.role` (admin/viewer); uses `@Roles()` decorator
-- `ThrottlerGuard` — 100 requests per 60 seconds
+### Scraping pipeline
 
-### Scraping Pipeline
+`ScrapingController` → `ScrapingService` → `PlaywrightService` (Chromium, headless) + `PriceExtractor` + `PromoExtractor`.
 
-[backend/src/scraping/scraping.service.ts](backend/src/scraping/scraping.service.ts) orchestrates:
+Price extraction uses a strategy waterfall: JSON-LD schema.org → OpenGraph meta → Microdata (`itemprop`) → CSS selectors. Promo detection checks struck prices, keyword lists, and badge elements.
 
-1. **Playwright** (`playwright.service.ts`) — launches browser, loads page
-2. **PriceExtractor** (`price.extractor.ts`) — 4-strategy fallback chain:
-   - CSS selector (learned selectors stored in `RetailerUrl.learnedSelectors`)
-   - XPath
-   - Microdata / schema.org structured data
-   - Raw HTML parsing (Cheerio)
-3. **PromoExtractor** (`promo.extractor.ts`) — detects promotional text and discounts
-4. **Evidence capture** — screenshots + HTML snapshots saved to `backend/evidence/<retailer-url-id>/<date>/`
+BullMQ and ioredis are installed but **not yet wired up** — scraping is currently triggered synchronously via HTTP POST. Redis is available for when async job queues are implemented.
 
-Price parsing (EU/US format detection) lives in `price-parser.util.ts`.
+### Auth flow
 
-### Queue
+- `POST /api/auth/login` → returns `accessToken` (15m) + `httpOnly` refresh cookie (7d)
+- `POST /api/auth/refresh` → rotates both tokens
+- `POST /api/auth/logout` → invalidates refresh token in DB
+- Refresh tokens are stored in the `RefreshToken` table and compared on each refresh
 
-BullMQ + Redis 7 handles background scraping jobs. Job configuration and scheduling use `node-cron` and `MonitoringConfig` records in the database.
+### Frontend (`frontend/src/`)
 
-### Frontend — React 19 + Vite + Tailwind CSS
+React 19 SPA with React Router, Axios (with interceptors for token refresh), and Tailwind CSS v4 (via `@tailwindcss/vite` plugin — no `tailwind.config.js` needed).
 
-```
-AuthContext (context/) → axiosInstance (services/axiosInstance.ts, JWT interceptors)
-  → authService / other services
-  → pages: LoginPage, DashboardPage, AdminPage
-```
+### Database schema (Prisma)
 
-[frontend/src/services/axiosInstance.ts](frontend/src/services/axiosInstance.ts) attaches the JWT access token to every request and handles 401 refresh-token rotation.
+Key models: `User`, `RefreshToken`, `Product`, `RetailerUrl`, `PriceCapture`, `MonitoringRule`, `Alert`. Schema at `backend/prisma/schema.prisma`. Generated client output: `backend/src/generated/prisma/`.
 
-### Database Schema
+## Environment setup
 
-Defined in [backend/prisma/schema.prisma](backend/prisma/schema.prisma). Key models and relationships:
+Copy `.env.example` to `.env` at repo root before running Docker. Key variables:
 
-```
-User           → RefreshToken (cascade delete)
-Product        → RetailerUrl → PriceCapture
-Product        → MonitoringRule
-RetailerUrl    → Alert
-PriceCapture   (price, struck-through price, promo text, screenshot path)
-Alert          (deviation/promo/error alerts with status workflow)
-JobLog         (audit trail per scraping run)
-MonitoringConfig (scheduling settings)
-```
+- `DATABASE_URL` — PostgreSQL connection string
+- `REDIS_HOST` / `REDIS_PORT` — Redis for BullMQ (future use)
+- `JWT_SECRET` — minimum 64 random characters
+- `SCRAPING_CONCURRENCY` — parallel Playwright instances (default: 2)
+- `SMTP_*` / `ALERT_EMAIL_*` — optional; alerts log to console if unset
 
-## Infrastructure
+Default admin after seeding: `admin@precio-monitor.com` / `Admin1234!`
 
-Docker Compose services (defined in [docker-compose.yml](docker-compose.yml)):
+## Branch and commit conventions
 
-| Service | Port |
-|---------|------|
-| PostgreSQL 15 | 5432 |
-| Redis 7 | 6379 |
-| Backend (NestJS) | 3000 |
-| Frontend (Vite) | 5173 |
-
-Health check: `GET http://localhost:3000/api/health`
-
-Default seed admin (created by `npx prisma db seed`):
-- Email: `admin@precio-monitor.com`
-- Password: `Admin1234!`
-
-Environment variables are documented in `.env` (Spanish comments). Key ones: `DATABASE_URL`, `REDIS_HOST/PORT`, `JWT_SECRET`, `JWT_ACCESS_EXPIRES`, `JWT_REFRESH_EXPIRES`, `SCRAPING_CONCURRENCY` (default 2), `EVIDENCE_BASE_PATH`.
+- Branches: `master` (prod) / `develop` / `feature/pm-<ticket>-<slug>`
+- Commit prefixes: `feat`, `fix`, `chore`, `docs`, `test`

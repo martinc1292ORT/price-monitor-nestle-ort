@@ -5,6 +5,9 @@ import { PriceExtractor } from './price.extractor';
 import { PromoExtractor } from './promo.extractor';
 import { ScrapingController } from './scraping.controller';
 import { ScrapingService } from './scraping.service';
+import { ScrapingQueue } from './queue/scraping.queue';
+import { ScrapingProcessor } from './queue/scraping.processor';
+import { MonitoringScheduler } from './queue/monitoring.scheduler';
 
 @Module({
   controllers: [ScrapingController],
@@ -14,7 +17,10 @@ import { ScrapingService } from './scraping.service';
     PriceExtractor,
     PromoExtractor,
     ScrapingService,
+    ScrapingQueue,
+    ScrapingProcessor,
+    MonitoringScheduler,
   ],
-  exports: [ScrapingService],
+  exports: [ScrapingService, ScrapingQueue, MonitoringScheduler],
 })
 export class ScrapingModule {}

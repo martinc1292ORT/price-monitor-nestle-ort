@@ -13,10 +13,13 @@ export class PlaywrightService implements OnModuleDestroy {
 
   private async getBrowser(): Promise<Browser> {
     if (!this.browser || !this.browser.isConnected()) {
-      this.browser = await chromium.launch({ headless: true,
-  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
-  args: ['--no-sandbox', '--disable-setuid-sandbox'],
-});
+      this.browser = await chromium.launch({
+        headless: true,
+        executablePath:
+          process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+          '/usr/bin/chromium-browser',
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      });
     }
     return this.browser;
   }

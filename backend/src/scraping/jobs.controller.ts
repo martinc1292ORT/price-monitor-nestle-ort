@@ -1,5 +1,14 @@
-import { Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { Roles } from '../common/decorators/roles.decorator';
+import { UpdateMonitoringConfigDto } from './dto/update-monitoring-config.dto';
 import { JobsService, TriggerResult } from './jobs.service';
 
 /**
@@ -19,5 +28,19 @@ export class JobsController {
   @HttpCode(HttpStatus.ACCEPTED)
   trigger(): Promise<TriggerResult> {
     return this.jobsService.triggerAll();
+  }
+
+  /** Lee la configuración actual del scheduler de monitoreo. */
+  @Get('config')
+  @Roles('admin')
+  getConfig() {
+    return this.jobsService.getConfig();
+  }
+
+  /** Actualiza la frecuencia del scheduler de monitoreo. */
+  @Patch('config')
+  @Roles('admin')
+  updateConfig(@Body() dto: UpdateMonitoringConfigDto) {
+    return this.jobsService.updateConfig(dto);
   }
 }

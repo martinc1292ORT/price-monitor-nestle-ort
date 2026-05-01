@@ -10,6 +10,7 @@ import {
 import { Roles } from '../common/decorators/roles.decorator';
 import { UpdateMonitoringConfigDto } from './dto/update-monitoring-config.dto';
 import { JobsService, TriggerResult } from './jobs.service';
+import { ScrapingScheduler } from './scraping.scheduler';
 
 /**
  * Endpoints de control del scheduler de scraping.
@@ -17,7 +18,10 @@ import { JobsService, TriggerResult } from './jobs.service';
  */
 @Controller('jobs')
 export class JobsController {
-  constructor(private readonly jobsService: JobsService) {}
+  constructor(
+    private readonly jobsService: JobsService,
+    private readonly scheduler: ScrapingScheduler,
+  ) {}
 
   /**
    * Dispara manualmente el encolado de jobs para todas las URLs activas.
@@ -37,10 +41,22 @@ export class JobsController {
     return this.jobsService.getConfig();
   }
 
-  /** Actualiza la frecuencia del scheduler de monitoreo. */
+  /**
+   * Actualiza la frecuencia del scheduler.
+   *
+   * Orquesta dos operaciones para aplicar el cambio en caliente:
+   *   1. Persiste la nueva frecuencia en `MonitoringConfig` (DB).
+   *   2. Le pide al `ScrapingScheduler` que detenga el cron en memoria
+   *      y arranque uno nuevo con la frecuencia actualizada.
+   *
+   * Sin este reschedule, la nueva config solo tomaría efecto al
+   * reiniciar el server.
+   */
   @Patch('config')
   @Roles('admin')
-  updateConfig(@Body() dto: UpdateMonitoringConfigDto) {
-    return this.jobsService.updateConfig(dto);
+  async updateConfig(@Body() dto: UpdateMonitoringConfigDto) {
+    const updated = await this.jobsService.updateConfig(dto);
+    this.scheduler.reschedule(updated.frequency);
+    return updated;
   }
 }

@@ -8,6 +8,7 @@ import { JobsController } from './jobs.controller';
 import { JobsService } from './jobs.service';
 import { ScrapeProcessor } from './scraping.processor';
 import { ScrapingController } from './scraping.controller';
+import { ScrapingScheduler } from './scraping.scheduler';
 import { ScrapingService } from './scraping.service';
 
 @Module({
@@ -34,7 +35,8 @@ import { ScrapingService } from './scraping.service';
     ScrapingService,
     ScrapeProcessor,
     JobsService,
+    ScrapingScheduler,
   ],
-  exports: [ScrapingService, JobsService],
+  exports: [ScrapingService, JobsService, ScrapingScheduler],
 })
 export class ScrapingModule {}

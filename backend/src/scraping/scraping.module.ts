@@ -4,6 +4,8 @@ import { PrismaService } from '../database/prisma.service';
 import { PlaywrightService } from './playwright.service';
 import { PriceExtractor } from './price.extractor';
 import { PromoExtractor } from './promo.extractor';
+import { JobsController } from './jobs.controller';
+import { JobsService } from './jobs.service';
 import { ScrapeProcessor } from './scraping.processor';
 import { ScrapingController } from './scraping.controller';
 import { ScrapingService } from './scraping.service';
@@ -23,7 +25,7 @@ import { ScrapingService } from './scraping.service';
       },
     }),
   ],
-  controllers: [ScrapingController],
+  controllers: [ScrapingController, JobsController],
   providers: [
     PrismaService,
     PlaywrightService,
@@ -31,7 +33,8 @@ import { ScrapingService } from './scraping.service';
     PromoExtractor,
     ScrapingService,
     ScrapeProcessor,
+    JobsService,
   ],
-  exports: [ScrapingService],
+  exports: [ScrapingService, JobsService],
 })
 export class ScrapingModule {}

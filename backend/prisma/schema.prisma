@@ -72,6 +72,7 @@ model RetailerUrl {
   updatedAt          DateTime       @updatedAt
   captures           PriceCapture[]
   alerts             Alert[]
+  jobLogs            JobLog[]
 }
 
 // ─── CAPTURAS ────────────────────────────────────────────────────────────────
@@ -138,17 +139,14 @@ model Alert {
 model MonitoringConfig {
   id        Int      @id @default(autoincrement())
   frequency String   @default("6h") // "1h" | "3h" | "6h" | "12h" | "24h" | cron expression
-  isRunning Boolean  @default(true)
   updatedAt DateTime @updatedAt
 }
 
 model JobLog {
-  id            Int      @id @default(autoincrement())
-  jobId         String
-  jobName       String
-  status        String // "started" | "completed" | "failed"
-  retailerUrlId Int?
-  error         String?
-  duration      Int?
-  createdAt     DateTime @default(now())
+  id            Int         @id @default(autoincrement())
+  retailerUrlId Int
+  retailerUrl   RetailerUrl @relation(fields: [retailerUrlId], references: [id], onDelete: Cascade)
+  status        String      // "SUCCESS" | "FAILED"
+  errorMessage  String?
+  createdAt     DateTime    @default(now())
 }

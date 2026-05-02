@@ -1,3 +1,4 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import {
   Body,
   Controller,
@@ -8,16 +9,18 @@ import {
   Param,
   ParseIntPipe,
 } from '@nestjs/common';
+import { Queue } from 'bullmq';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ScrapingResult, ScrapingService } from './scraping.service';
-import { ScrapingQueue } from './queue/scraping.queue';
+import { ScrapeJobData } from './scraping.processor';
 import { Public } from 'src/common/decorators/public.decorator';
 
 @Controller('scraping')
 export class ScrapingController {
   constructor(
     private readonly scrapingService: ScrapingService,
-    private readonly scrapingQueue: ScrapingQueue,
+    @InjectQueue('scraping-queue')
+    private readonly scrapingQueue: Queue<ScrapeJobData>,
   ) {}
 
   @Public()
@@ -48,7 +51,7 @@ export class ScrapingController {
   async enqueue(
     @Param('retailerUrlId', ParseIntPipe) retailerUrlId: number,
   ): Promise<{ jobId: string; retailerUrlId: number }> {
-    const jobId = await this.scrapingQueue.enqueueScrape(retailerUrlId);
-    return { jobId, retailerUrlId };
+    const job = await this.scrapingQueue.add('scrape-url', { retailerUrlId });
+    return { jobId: String(job.id), retailerUrlId };
   }
 }

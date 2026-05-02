@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Prisma } from '../../generated/prisma/client.js';
+import { Prisma, PriceCapture } from '../../generated/prisma/client.js';
 import { Page } from 'playwright';
 import { PrismaService } from '../database/prisma.service';
 import { PlaywrightService } from './playwright.service';
-import { PriceExtractor } from './price.extractor';
+import { PriceExtractor, PriceStrategy } from './price.extractor';
 import { PromoExtractor } from './promo.extractor';
 
 export interface ScrapingResult {
@@ -13,6 +13,7 @@ export interface ScrapingResult {
   retailerUrlId: number;
   checkResult: string;
   currentPrice: number | null;
+  capture?: PriceCapture;
   error?: string;
 }
 
@@ -99,8 +100,11 @@ export class ScrapingService {
         };
       }
 
-      // 2. Extract price
-      const priceResult = await this.priceExtractor.extract(page);
+      // 2. Extract price (using learned selector when available)
+      const priceResult = await this.priceExtractor.extract(
+        page,
+        retailerUrl.learnedSelector,
+      );
 
       // 3. Detect promo
       const promoResult = await this.promoExtractor.extract(
@@ -123,7 +127,7 @@ export class ScrapingService {
       );
 
       // 6. Persist PriceCapture
-      await this.persistCapture(retailerUrlId, {
+      const savedCapture = await this.persistCapture(retailerUrlId, {
         currentPrice: priceResult.currentPrice,
         struckPrice: promoResult.struckPrice,
         promoText: promoResult.promoText,
@@ -136,15 +140,23 @@ export class ScrapingService {
         rawData: priceResult.rawData,
       });
 
-      // 7. Update RetailerUrl status
+      // 7. Update RetailerUrl status + learned selector
       const newStatus = checkResult === 'not_found' ? 'not_found' : 'active';
-      await this.updateStatus(retailerUrlId, newStatus);
+      await this.updateAfterScrape(
+        retailerUrlId,
+        newStatus,
+        priceResult.strategy,
+        priceResult.winningCssSelector,
+        retailerUrl.learnedSelector,
+        retailerUrl.selectorConfidence,
+      );
 
       return {
         success: true,
         retailerUrlId,
         checkResult,
         currentPrice: priceResult.currentPrice,
+        capture: savedCapture,
       };
     } catch (err) {
       this.logger.error(`Unexpected error scraping #${retailerUrlId}: ${err}`);
@@ -194,7 +206,7 @@ export class ScrapingService {
       fs.mkdirSync(dir, { recursive: true });
       const filename = `${retailerUrlId}_${timestamp}.png`;
       await page.screenshot({ path: path.join(dir, filename), fullPage: true });
-      return path.join('evidence', 'screenshots', datePath, filename);
+      return path.posix.join('evidence', 'screenshots', datePath, filename);
     } catch (err) {
       this.logger.warn(`Screenshot failed: ${err}`);
       return null;
@@ -213,7 +225,7 @@ export class ScrapingService {
       const filename = `${retailerUrlId}_${timestamp}.html`;
       const html = await page.content();
       fs.writeFileSync(path.join(dir, filename), html, 'utf-8');
-      return path.join('evidence', 'html', datePath, filename);
+      return path.posix.join('evidence', 'html', datePath, filename);
     } catch (err) {
       this.logger.warn(`HTML save failed: ${err}`);
       return null;
@@ -223,8 +235,8 @@ export class ScrapingService {
   private async persistCapture(
     retailerUrlId: number,
     data: CaptureData,
-  ): Promise<void> {
-    await this.prisma.priceCapture.create({
+  ): Promise<PriceCapture> {
+    return this.prisma.priceCapture.create({
       data: {
         retailerUrlId,
         capturedAt: new Date(),
@@ -251,6 +263,43 @@ export class ScrapingService {
     await this.prisma.retailerUrl.update({
       where: { id: retailerUrlId },
       data: { status },
+    });
+  }
+
+  private async updateAfterScrape(
+    retailerUrlId: number,
+    status: string,
+    strategy: PriceStrategy,
+    winningCssSelector: string | null,
+    previousSelector: string | null,
+    previousConfidence: number | null,
+  ): Promise<void> {
+    const data: Prisma.RetailerUrlUpdateInput = { status };
+    const prev = previousConfidence ?? 0;
+
+    if (strategy === 'learned') {
+      data.selectorConfidence = Math.min(1, prev + 0.1);
+      data.lastSelectorUpdate = new Date();
+    } else if (strategy === 'css' && winningCssSelector) {
+      data.learnedSelector = winningCssSelector;
+      data.selectorConfidence = 1;
+      data.lastSelectorUpdate = new Date();
+    } else if (previousSelector) {
+      // structured strategy won OR none — decay the learned selector
+      const delta = strategy === 'none' ? -0.2 : -0.1;
+      const next = prev + delta;
+      if (next < 0.3) {
+        data.learnedSelector = null;
+        data.selectorConfidence = null;
+      } else {
+        data.selectorConfidence = next;
+      }
+      data.lastSelectorUpdate = new Date();
+    }
+
+    await this.prisma.retailerUrl.update({
+      where: { id: retailerUrlId },
+      data,
     });
   }
 

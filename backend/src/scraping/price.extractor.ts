@@ -2,9 +2,19 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Page } from 'playwright';
 import { parsePrice } from './price-parser.util';
 
+export type PriceStrategy =
+  | 'json-ld'
+  | 'meta'
+  | 'microdata'
+  | 'learned'
+  | 'css'
+  | 'none';
+
 export interface PriceExtractionResult {
   currentPrice: number | null;
   detectedName: string | null;
+  strategy: PriceStrategy;
+  winningCssSelector: string | null;
   rawData: Record<string, unknown>;
 }
 
@@ -20,13 +30,19 @@ const CSS_PRICE_SELECTORS = [
 export class PriceExtractor {
   private readonly logger = new Logger(PriceExtractor.name);
 
-  async extract(page: Page): Promise<PriceExtractionResult> {
-    const strategies = [
+  async extract(
+    page: Page,
+    learnedSelector: string | null = null,
+  ): Promise<PriceExtractionResult> {
+    const strategies: Array<() => Promise<PriceExtractionResult | null>> = [
       () => this.fromJsonLd(page),
       () => this.fromMeta(page),
       () => this.fromMicrodata(page),
-      () => this.fromCss(page),
     ];
+    if (learnedSelector) {
+      strategies.push(() => this.fromLearned(page, learnedSelector));
+    }
+    strategies.push(() => this.fromCss(page));
 
     for (const strategy of strategies) {
       const result = await strategy().catch((err) => {
@@ -42,6 +58,8 @@ export class PriceExtractor {
     return {
       currentPrice: null,
       detectedName: null,
+      strategy: 'none',
+      winningCssSelector: null,
       rawData: { strategy: 'none' },
     };
   }
@@ -104,6 +122,8 @@ export class PriceExtractor {
         return {
           currentPrice,
           detectedName: name,
+          strategy: 'json-ld',
+          winningCssSelector: null,
           rawData: { strategy: 'json-ld', rawValue, source },
         };
       }
@@ -129,6 +149,8 @@ export class PriceExtractor {
         return {
           currentPrice,
           detectedName: name,
+          strategy: 'json-ld',
+          winningCssSelector: null,
           rawData: { strategy: 'json-ld', rawValue, source },
         };
       }
@@ -165,6 +187,8 @@ export class PriceExtractor {
           return {
             currentPrice,
             detectedName: name,
+            strategy: 'meta',
+            winningCssSelector: null,
             rawData: { strategy: 'meta', rawValue, source },
           };
         }
@@ -200,11 +224,39 @@ export class PriceExtractor {
         return {
           currentPrice,
           detectedName: null,
+          strategy: 'microdata',
+          winningCssSelector: null,
           rawData: { strategy: 'microdata', rawValue, source, candidateCount },
         };
       }
     }
     return null;
+  }
+
+  private async fromLearned(
+    page: Page,
+    selector: string,
+  ): Promise<PriceExtractionResult | null> {
+    const rawValue = await page
+      .$eval(
+        selector,
+        (el) =>
+          el.getAttribute('data-price') ??
+          el.getAttribute('content') ??
+          el.textContent,
+      )
+      .catch(() => null);
+
+    if (!rawValue) return null;
+    const currentPrice = parsePrice(rawValue);
+    if (currentPrice === null) return null;
+    return {
+      currentPrice,
+      detectedName: null,
+      strategy: 'learned',
+      winningCssSelector: selector,
+      rawData: { strategy: 'learned', rawValue, source: `learned.${selector}` },
+    };
   }
 
   private async fromCss(page: Page): Promise<PriceExtractionResult | null> {
@@ -225,6 +277,8 @@ export class PriceExtractor {
           return {
             currentPrice,
             detectedName: null,
+            strategy: 'css',
+            winningCssSelector: selector,
             rawData: { strategy: 'css', rawValue, source: `css.${selector}` },
           };
         }
